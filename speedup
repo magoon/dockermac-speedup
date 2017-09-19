@@ -1,0 +1,132 @@
+#!/bin/bash
+: ${1?"Usage: $0 edit"}
+
+set -e
+SERVICES="$@"
+IFS=''
+
+# Docker for Mac performance improvement
+#
+# Selectively mount only the volumes you're working on
+#
+# This will add "delegated" volume mount mode to the services
+# you invoke with the script and will also remove the volume mounts
+# to all other services. This means that container file systems will
+# not be linked to your source folders, except for the services you
+# specify. 
+#
+# The delegated mode is new as of Docker for Mac 17.09 and
+# is highly performant, at the cost of consistency; the container's file
+# system is more trusted, and writes made on the container are not
+# guaranteed to be sync'd to the host quickly or reliably. If you do
+# not want to use "delegated" you can force "cached" or "consistent"
+# in your docker-compose.yml.
+#
+# This has been tested with Docker for Mac 17.09 Stable.
+#
+# Install:
+#
+#   Place this script alongside docker-compose.yml, or symlink it to ~/bin
+#
+# Usage:
+# 
+#   speedup edit rover
+#
+# http://github.com/magoon/dockermac-speedup
+
+
+function remove_unneeded_volumes_from() {
+
+  # Iterate services, removing volumes from those we don't need
+  # And adding ":delegated" to those that we do want to keep
+  # 
+  # Function parameter: docker-compose filename
+  #
+  # Overview: When a matching service is found after an empty line,
+  # matching_service variable becomes set to 1. Then, when "volumes:" is
+  # found, any item in that list is conditionally removed or modified.
+
+  FILE=$( IFS='' cat $1 )
+
+  echo $FILE | awk '
+    matching_service && volumes {
+      # This does the actual skipping of volumes
+      if (/\s*-\s*"?[^"]*"?/) 
+	next;
+    } 
+
+    volumes {
+      if (/\s*-\s*"?[^"]*"?/) {
+        # Add :delegated mode to volume mount if not exist, and if not in quotes
+        if (!/.*\:.*\:/ && !/:(consistent|:delegated|:cached)/ && !/"$/) {   
+          print $0":delegated"; 
+          next;  
+        }
+      }
+      else 
+        volumes=0
+    }
+
+    /\volumes:/ {
+      volumes=1;
+      if (matching_service) {
+        next;
+      }
+    }
+    
+    empty { 
+      matching_service = 1
+      split ("'$SERVICES'", servicelist, " ");
+      for (i in servicelist)
+        if ($1 == servicelist[i]":") 
+          matching_service = 0;
+    } 
+    { 
+      # Services are to be preceded by empty lines, sadly
+      if (NF) 
+        empty = 0; 
+      else 
+        empty = 1 
+    }
+    { 
+      if (/services:/) 
+        empty = 1
+    }
+    1
+  '
+}
+
+# Start docker if it's not already running
+if ! $(docker info > /dev/null 2>&1); then
+  open -a /Applications/Docker.app
+  echo -ne "\nWait until Docker for Mac is running."
+  while ! $(docker run --rm hello-world > /dev/null 2>&1); do
+    echo -n "."
+    sleep .5
+  done
+  echo ""
+fi
+
+# Lower the priority of hyperkit
+renice -n 19 $(pgrep com.docker.hyperkit) 
+
+# Write out a temporary docker-compose file with modified volume mounts
+remove_unneeded_volumes_from docker-compose.yml > .tmp.docker-compose.yml
+
+# Also process your override file if needed
+if [ -f docker-compose.override.yml ]; then
+	remove_unneeded_volumes_from docker-compose.override.yml > .tmp.docker-compose.override.yml
+	docker-compose -f .tmp.docker-compose.yml -f .tmp.docker-compose.override.yml up -d $@
+else
+	docker-compose -f .tmp.docker-compose.yml up -d $@ 
+fi
+
+# Clean up
+rm -f .tmp.docker-compose.yml
+rm -f .tmp.docker-compose.override.yml
+
+# End the script successfully
+exit 0
+
+
+
