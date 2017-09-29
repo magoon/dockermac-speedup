@@ -65,8 +65,9 @@ function remove_unneeded_volumes_from() {
 
     volumes {
       if (/\s*-\s*"?[^"]*"?/) {
-        # Add :delegated mode to volume mount if not exist, and if not in quotes
-        if (!/.*\:.*\:/ && !/:(consistent|:delegated|:cached)/ && !/"$/) {   
+        # Add :delegated mode to volume mount if not exist, 
+        # not in quotes, and absolute
+        if (!/.*\:.*\:/ && /:/ && !/:(consistent|:delegated|:cached)/ && !/"$/) {   
           print $0":delegated"; 
           next;  
         }
