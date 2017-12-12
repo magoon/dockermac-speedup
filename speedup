@@ -119,15 +119,21 @@ fi
 # Lower the priority of hyperkit
 renice -n 19 $(pgrep com.docker.hyperkit) 
 
+# if there's no docker-compose.yml file, exit
+if [ ! -f docker-compose.yml ]; then
+  echo 'Error: docker-compose.yml: No such file'
+  exit 1
+fi
+
 # Write out a temporary docker-compose file with modified volume mounts
 remove_unneeded_volumes_from docker-compose.yml > .tmp.docker-compose.yml
 
 # Also process your override file if needed
 if [ -f docker-compose.override.yml ]; then
-	remove_unneeded_volumes_from docker-compose.override.yml > .tmp.docker-compose.override.yml
-	docker-compose -f .tmp.docker-compose.yml -f .tmp.docker-compose.override.yml up -d $@
+  remove_unneeded_volumes_from docker-compose.override.yml > .tmp.docker-compose.override.yml
+  docker-compose -f .tmp.docker-compose.yml -f .tmp.docker-compose.override.yml up -d $@
 else
-	docker-compose -f .tmp.docker-compose.yml up -d $@ 
+  docker-compose -f .tmp.docker-compose.yml up -d $@ 
 fi
 
 # Clean up
@@ -136,6 +142,3 @@ rm -f .tmp.docker-compose.override.yml
 
 # End the script successfully
 exit 0
-
-
-
